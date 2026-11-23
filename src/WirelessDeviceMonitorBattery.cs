@@ -9,6 +9,13 @@ using System.Text;
 using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
+using System.Reflection;
+
+[assembly: AssemblyTitle("Wireless Device Monitor Battery")]
+[assembly: AssemblyProduct("Wireless Device Monitor Battery")]
+[assembly: AssemblyDescription("Battery level of your Bluetooth devices on the Windows taskbar")]
+[assembly: AssemblyVersion("1.0.0.0")]
+[assembly: AssemblyFileVersion("1.0.0.0")]
 
 static class Native
 {
@@ -116,18 +123,24 @@ class App : ApplicationContext
     IntPtr hbmp = IntPtr.Zero;
     int width, height, ticks;
 
+    // idioma: el de Windows (es -> espanol, resto -> ingles); se puede forzar con  --lang es|en
+    static bool ES = System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "es";
+    static string T(string es, string en) { return ES ? es : en; }
+
     [STAThread]
-    static void Main()
+    static void Main(string[] args)
     {
+        for (int i = 0; i < args.Length - 1; i++)
+            if (args[i] == "--lang") ES = args[i + 1].StartsWith("es", StringComparison.OrdinalIgnoreCase);
         bool created;
-        using (var m = new Mutex(true, "BatteryTray_single", out created))
+        using (var m = new Mutex(true, "WirelessDeviceMonitorBattery_single", out created))
         {
             if (!created) return;
             Native.SetProcessDPIAware();
             System.Runtime.GCSettings.LatencyMode = System.Runtime.GCLatencyMode.Batch;
             Application.EnableVisualStyles();
             try { Application.Run(new App()); }
-            catch (Exception ex) { System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "BatteryTray_error.txt"), ex.ToString()); }
+            catch (Exception ex) { System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "WirelessDeviceMonitorBattery_error.txt"), ex.ToString()); }
         }
     }
 
@@ -281,8 +294,8 @@ class App : ApplicationContext
         menu.Items.Clear();
         foreach (var it in items) menu.Items.Add(it.Name + ": " + it.Pct + "%").Enabled = false;
         if (items.Count > 0) menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Actualizar ahora", null, (s, e) => Refresh());
-        menu.Items.Add("Salir", null, (s, e) => Exit());
+        menu.Items.Add(T("Actualizar ahora", "Refresh now"), null, (s, e) => Refresh());
+        menu.Items.Add(T("Salir", "Exit"), null, (s, e) => Exit());
 
         Render(items);
         Place();
@@ -512,7 +525,7 @@ class App : ApplicationContext
             using (var sf = new StringFormat(StringFormat.GenericTypographic) { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap })
             {
                 // cabecera
-                using (var b = new SolidBrush(A(Cyan, 190))) g.DrawString("// ENLACE ACTIVO", fSm, b, 16, 13, StringFormat.GenericTypographic);
+                using (var b = new SolidBrush(A(Cyan, 190))) g.DrawString(T("// ENLACE ACTIVO", "// ACTIVE LINK"), fSm, b, 16, 13, StringFormat.GenericTypographic);
                 string st = it.Connected ? "ONLINE" : "OFFLINE";
                 Color sc = it.Connected ? Grn : Red;
                 float sw = g.MeasureString(st, fSm, 200, StringFormat.GenericTypographic).Width;
@@ -526,7 +539,7 @@ class App : ApplicationContext
                 using (var b = new SolidBrush(Color.FromArgb(245, 250, 255))) g.DrawString(it.Name, fName, b, nr, sf);
 
                 // etiqueta de tipo + icono
-                string[] tipos = { "DISPOSITIVO", "RATÓN", "TECLADO", "AUDIO" };
+                string[] tipos = ES ? new[] { "DISPOSITIVO", "RATÓN", "TECLADO", "AUDIO" } : new[] { "DEVICE", "MOUSE", "KEYBOARD", "AUDIO" };
                 string tipo = tipos[Math.Max(0, Math.Min(3, it.Kind))];
                 float tw = g.MeasureString(tipo, fSm, 200, StringFormat.GenericTypographic).Width;
                 using (var p = new Pen(A(Mag, 220), 1f)) g.DrawRectangle(p, 16, 60, tw + 12, 15);
@@ -556,14 +569,14 @@ class App : ApplicationContext
                     }
                     else using (var b = new SolidBrush(Color.FromArgb(30, 255, 255, 255))) g.FillRectangle(b, x, by, sgw, bh);
                 }
-                using (var b = new SolidBrush(A(Dim, 230))) g.DrawString("NIVEL DE ENERGÍA", fTi, b, bx, 123, StringFormat.GenericTypographic);
+                using (var b = new SolidBrush(A(Dim, 230))) g.DrawString(T("NIVEL DE ENERGÍA", "POWER LEVEL"), fTi, b, bx, 123, StringFormat.GenericTypographic);
                 if (it.Charging)
                 {
                     float lx = W - 16 - 66;
                     using (var b = new SolidBrush(Grn))
                     {
                         g.FillPolygon(b, new[] { new PointF(lx + 5, 122), new PointF(lx, 129), new PointF(lx + 3.6f, 129), new PointF(lx + 2.4f, 135), new PointF(lx + 8, 127.5f), new PointF(lx + 4.4f, 127.5f) });
-                        g.DrawString("CARGANDO", fTi, b, lx + 11, 123, StringFormat.GenericTypographic);
+                        g.DrawString(T("CARGANDO", "CHARGING"), fTi, b, lx + 11, 123, StringFormat.GenericTypographic);
                     }
                 }
 
@@ -572,8 +585,8 @@ class App : ApplicationContext
                 using (var b = new SolidBrush(A(Cyan, 220))) g.FillRectangle(b, 16, 149, 34, 2);
 
                 // datos
-                string[] lab = { "ENLACE", "DIRECCIÓN", "FUENTE" };
-                string[] val = { it.Link, it.Mac, it.Charging ? "CARGADOR" : "BATERÍA" };
+                string[] lab = ES ? new[] { "ENLACE", "DIRECCIÓN", "FUENTE" } : new[] { "LINK", "ADDRESS", "SOURCE" };
+                string[] val = { it.Link, it.Mac, it.Charging ? T("CARGADOR", "CHARGER") : T("BATERÍA", "BATTERY") };
                 for (int i = 0; i < lab.Length; i++)
                 {
                     float y = 160 + i * 15.5f;
