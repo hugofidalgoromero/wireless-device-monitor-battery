@@ -297,7 +297,7 @@ class App : ApplicationContext
         menu.Items.Add(T("Actualizar ahora", "Refresh now"), null, (s, e) => Refresh());
         menu.Items.Add(T("Salir", "Exit"), null, (s, e) => Exit());
 
-        Render(items);
+        Render(items.FindAll(x => x.Connected)); // el widget solo muestra los dispositivos online
         Place();
         Trim();
     }
@@ -610,7 +610,7 @@ class App : ApplicationContext
         if (Native.CM_Locate_DevNodeW(out inst, it.Id, 0) != 0) return;
         var b = Prop(inst, Battery);
         if (b != null && b.Length > 0 && b[0] <= 100) { if (b[0] != it.Pct) dirty = true; it.Pct = b[0]; }
-        var cn = Prop(inst, IsConnected); if (cn != null && cn.Length > 0) it.Connected = cn[0] != 0;
+        var cn = Prop(inst, IsConnected); if (cn != null && cn.Length > 0) { bool c = cn[0] != 0; if (c != it.Connected) dirty = true; it.Connected = c; }
         var ch = Prop(inst, Charging); if (ch != null && ch.Length > 0) it.Charging = ch[0] != 0;
     }
 
