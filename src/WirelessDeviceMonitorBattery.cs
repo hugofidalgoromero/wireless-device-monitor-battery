@@ -14,8 +14,8 @@ using System.Reflection;
 [assembly: AssemblyTitle("Wireless Device Monitor Battery")]
 [assembly: AssemblyProduct("Wireless Device Monitor Battery")]
 [assembly: AssemblyDescription("Battery level of your Bluetooth devices on the Windows taskbar")]
-[assembly: AssemblyVersion("1.0.0.0")]
-[assembly: AssemblyFileVersion("1.0.0.0")]
+[assembly: AssemblyVersion("1.0.2.0")]
+[assembly: AssemblyFileVersion("1.0.2.0")]
 
 static class Native
 {
@@ -49,6 +49,136 @@ static class Native
     [DllImport("gdi32.dll")] public static extern IntPtr SelectObject(IntPtr dc, IntPtr obj);
     [DllImport("gdi32.dll")] public static extern bool DeleteObject(IntPtr obj);
     [DllImport("gdi32.dll")] public static extern bool DeleteDC(IntPtr dc);
+}
+
+// posicion real de los iconos de la bandeja en Windows 11 (UI Automation por COM). Solo se ejecuta en el proceso
+// auxiliar "--probe" (ver StartProbe): cargar UI Automation costaria decenas de MB al widget, y ademas el widget
+// es hijo de la barra, asi que recorrer su arbol UIA desde su propio hilo de interfaz se bloquearia.
+static class TrayProbe
+{
+    [ComImport, Guid("ff48dba4-60ef-4201-aa87-54103eef594e")] class CUIAutomation { }
+
+    [ComImport, Guid("352ffba8-0973-437c-a61f-f64cafd81df9"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface ICondition { }
+
+    [ComImport, Guid("14314595-b4bc-4055-95f2-58f2e42c9855"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IElementArray
+    {
+        int get_Length();
+        IElement GetElement(int index);
+    }
+
+    [StructLayout(LayoutKind.Sequential)] struct Box { public int left, top, right, bottom; }
+
+    [ComImport, Guid("d22108aa-8ac5-49a5-837b-37bbb3d7591e"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IElement
+    {
+    void M3();
+    void M4();
+    void M5();
+        IElementArray FindAll(int scope, ICondition cond);   // 6
+    void M7();
+    void M8();
+    void M9();
+    void M10();
+    void M11();
+    void M12();
+    void M13();
+    void M14();
+    void M15();
+    void M16();
+    void M17();
+    void M18();
+    void M19();
+    void M20();
+    void M21();
+    void M22();
+    void M23();
+    void M24();
+    void M25();
+    void M26();
+    void M27();
+    void M28();
+    void M29();
+    void M30();
+    void M31();
+    void M32();
+    void M33();
+    void M34();
+    void M35();
+    void M36();
+    void M37();
+    void M38();
+    void M39();
+    void M40();
+    void M41();
+    void M42();
+        Box get_CurrentBoundingRectangle();                  // 43
+    }
+
+    [ComImport, Guid("30cbe57d-d9d0-452a-ab13-7ac5ac4825ee"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IAutomation
+    {
+    void M3();
+    void M4();
+    void M5();
+        IElement ElementFromHandle(IntPtr hwnd);             // 6
+    void M7();
+    void M8();
+    void M9();
+    void M10();
+    void M11();
+    void M12();
+    void M13();
+    void M14();
+    void M15();
+    void M16();
+    void M17();
+    void M18();
+    void M19();
+    void M20();
+    void M21();
+    void M22();
+        ICondition CreatePropertyCondition(int propertyId, [MarshalAs(UnmanagedType.Struct)] object value);   // 23
+    void M24();
+    void M25();
+    void M26();
+    void M27();
+        ICondition CreateOrCondition(ICondition a, ICondition b);   // 28
+    }
+
+    // borde izquierdo del primer icono de la bandeja (px de pantalla), o int.MinValue si aun no esta cargada
+    public static int Left(IntPtr tray, int minX)
+    {
+        IAutomation ui = null; IElement root = null; ICondition c1 = null, c2 = null, or = null; IElementArray arr = null;
+        try
+        {
+            ui = (IAutomation)new CUIAutomation();
+            root = ui.ElementFromHandle(tray);
+            c1 = ui.CreatePropertyCondition(30011, "SystemTrayIcon");   // UIA_AutomationIdPropertyId
+            c2 = ui.CreatePropertyCondition(30011, "NotifyItemIcon");
+            or = ui.CreateOrCondition(c1, c2);
+            arr = root.FindAll(4, or);                                  // TreeScope_Descendants
+            int left = int.MaxValue, n = 0, count = arr.get_Length();
+            for (int i = 0; i < count; i++)
+            {
+                IElement e = arr.GetElement(i);
+                try
+                {
+                    Box r = e.get_CurrentBoundingRectangle();
+                    if (r.right <= r.left || r.left < minX) continue;
+                    n++;
+                    if (r.left < left) left = r.left;
+                }
+                finally { Marshal.ReleaseComObject(e); }
+            }
+            return n >= 3 ? left : int.MinValue;   // bandeja aun sin cargar (faltan reloj, red, etc.)
+        }
+        finally
+        {
+            foreach (object o in new object[] { arr, or, c2, c1, root, ui }) if (o != null) Marshal.ReleaseComObject(o);
+        }
+    }
 }
 
 class Item
@@ -130,6 +260,14 @@ class App : ApplicationContext
     [STAThread]
     static void Main(string[] args)
     {
+        if (args.Length == 3 && args[0] == "--probe")   // modo auxiliar: imprime el borde izquierdo real de la bandeja
+        {
+            int minX; long hwnd;
+            if (!long.TryParse(args[1], out hwnd) || !int.TryParse(args[2], out minX)) return;
+            Native.SetProcessDPIAware();
+            try { Console.Out.Write(TrayProbe.Left((IntPtr)hwnd, minX)); } catch { }
+            return;
+        }
         for (int i = 0; i < args.Length - 1; i++)
             if (args[i] == "--lang") ES = args[i + 1].StartsWith("es", StringComparison.OrdinalIgnoreCase);
         bool created;
@@ -171,6 +309,10 @@ class App : ApplicationContext
         if (tray == IntPtr.Zero) return false;
         if (form != null && tray == attached && !form.IsDisposed) return true;
         if (form != null) { try { form.Dispose(); } catch { } }
+        // barra nueva (arranque o reinicio del explorador): olvidar la medicion anterior y volver a la fase de arranque
+        uiaLeft = uiaFor = int.MinValue;
+        attachTime = DateTime.UtcNow;
+        placed = false;
         form = new Widget { ParentWnd = tray };
         form.ContextMenuStrip = menu;
         form.MouseMove += (s, e) =>
@@ -463,18 +605,7 @@ class App : ApplicationContext
             hbmp = bmp.GetHbitmap(Color.FromArgb(0));
         }
 
-        IntPtr screen = Native.GetDC(IntPtr.Zero), mem = Native.CreateCompatibleDC(screen);
-        IntPtr old = Native.SelectObject(mem, hbmp);
-        var pt = Position(attached);
-        var sz = new Native.SIZE { cx = width, cy = height };
-        var src = new Native.POINT();
-        var bl = new Native.BLEND { op = 0, flags = 0, alpha = 255, format = 1 };
-        if (!form.Visible) form.Show();
-        Native.UpdateLayeredWindow(form.Handle, screen, ref pt, ref sz, mem, ref src, 0, ref bl, 2);
-        lastX = pt.x;
-        Native.SelectObject(mem, old);
-        Native.DeleteDC(mem);
-        Native.ReleaseDC(IntPtr.Zero, screen);
+        Commit();
     }
 
     // ---------- panel cyberpunk ----------
@@ -680,15 +811,107 @@ class App : ApplicationContext
         if (panelBmp != IntPtr.Zero) { Native.DeleteObject(panelBmp); panelBmp = IntPtr.Zero; trimPending = true; }
     }
 
-    // posicion relativa a la barra de tareas (el widget es su ventana hija)
-    Native.POINT Position(IntPtr tray)
+    // ---------- posicion ----------
+    // Al arrancar el PC, TrayNotifyWnd puede declarar un tamano provisional durante un buen rato (Windows 11 lo
+    // actualiza tarde), asi que el widget quedaba lejos de los iconos. La fuente fiable es la posicion real de los
+    // iconos de la bandeja (UI Automation, en un hilo aparte para no bloquear la interfaz). Mientras no se conozca
+    // ese dato el widget permanece oculto en vez de colocarse a ojo.
+    int uiaLeft = int.MinValue;     // borde izquierdo real de la bandeja (UIA); int.MinValue = aun desconocido
+    int uiaFor = int.MinValue;      // borde de TrayNotifyWnd en el momento de esa medicion
+    volatile bool probing;
+    DateTime attachTime = DateTime.UtcNow;
+    bool placed;                    // el widget ya esta dibujado en su sitio
+
+    static readonly TimeSpan Settle = TimeSpan.FromMinutes(10);   // fase de arranque: se mide cada segundo
+    static readonly TimeSpan Grace = TimeSpan.FromSeconds(45);    // si UIA no responde, se usa TrayNotifyWnd pasado este tiempo
+
+    void StartProbe(IntPtr tray, int minX, int hw)
     {
+        probing = true;
+        ThreadPool.QueueUserWorkItem(delegate
+        {
+            // proceso auxiliar efimero: asi UI Automation (decenas de MB) nunca se carga en el proceso del widget
+            int l = int.MinValue;
+            try
+            {
+                var psi = new ProcessStartInfo(Application.ExecutablePath, "--probe " + (long)tray + " " + minX);
+                psi.UseShellExecute = false; psi.CreateNoWindow = true; psi.RedirectStandardOutput = true;
+                using (var pr = Process.Start(psi))
+                {
+                    string o = pr.StandardOutput.ReadToEnd();
+                    if (!pr.WaitForExit(8000)) { try { pr.Kill(); } catch { } }
+                    else if (!int.TryParse(o.Trim(), out l)) l = int.MinValue;
+                }
+            }
+            catch { }
+            if (tray == attached)
+            {
+                if (l != int.MinValue) uiaLeft = l;
+                uiaFor = hw;
+            }
+            probing = false;
+        });
+    }
+
+    // borde izquierdo de la zona de notificaciones (px de pantalla); false si aun no es fiable
+    bool TrayLeft(IntPtr tray, out int left)
+    {
+        left = 0;
         Native.RECT tb; Native.GetWindowRect(tray, out tb);
+        int hw = int.MinValue;
         IntPtr notify = Native.FindWindowEx(tray, IntPtr.Zero, "TrayNotifyWnd", null);
         Native.RECT nr;
-        int right = tb.right - 320;
-        if (notify != IntPtr.Zero && Native.GetWindowRect(notify, out nr) && nr.left > tb.left) right = nr.left;
-        return new Native.POINT { x = right - tb.left - width + (int)trail - 8, y = 0 };
+        if (notify != IntPtr.Zero && Native.GetWindowRect(notify, out nr) && nr.right - nr.left >= 24 && nr.left > tb.left && nr.right <= tb.right + 2) hw = nr.left;
+
+        // Windows 10 y anteriores: TrayNotifyWnd es fiable en cuanto tiene tamano
+        if (Native.FindWindowEx(tray, IntPtr.Zero, "Windows.UI.Composition.DesktopWindowContentBridge", null) == IntPtr.Zero)
+        {
+            if (hw == int.MinValue) return false;
+            left = hw; return true;
+        }
+
+        // Windows 11: medir con UIA durante el arranque, cuando cambia TrayNotifyWnd y cada minuto por seguridad
+        TimeSpan age = DateTime.UtcNow - attachTime;
+        if (!probing && (age < Settle || hw != uiaFor || ticks % 60 == 0)) StartProbe(tray, tb.left + (tb.right - tb.left) / 2, hw);
+        if (uiaLeft != int.MinValue) { left = uiaLeft; return true; }
+        if (age > Grace && hw != int.MinValue) { left = hw; return true; }
+        return false;
+    }
+
+    // posicion relativa a la barra de tareas (el widget es su ventana hija)
+    bool Position(IntPtr tray, out Native.POINT pt)
+    {
+        pt = new Native.POINT();
+        int left;
+        if (!TrayLeft(tray, out left)) return false;
+        Native.RECT tb; Native.GetWindowRect(tray, out tb);
+        pt.x = left - tb.left - width + (int)trail - 8;
+        pt.y = 0;
+        return true;
+    }
+
+    // dibuja el widget en su posicion; si la bandeja aun no esta lista lo deja oculto y Place() lo reintenta
+    void Commit()
+    {
+        Native.POINT pt;
+        if (hbmp == IntPtr.Zero || !Position(attached, out pt))
+        {
+            if (form != null && form.Visible) form.Hide();
+            placed = false;
+            return;
+        }
+        IntPtr screen = Native.GetDC(IntPtr.Zero), mem = Native.CreateCompatibleDC(screen);
+        IntPtr old = Native.SelectObject(mem, hbmp);
+        var sz = new Native.SIZE { cx = width, cy = height };
+        var src = new Native.POINT();
+        var bl = new Native.BLEND { op = 0, flags = 0, alpha = 255, format = 1 };
+        if (!form.Visible) form.Show();
+        Native.UpdateLayeredWindow(form.Handle, screen, ref pt, ref sz, mem, ref src, 0, ref bl, 2);
+        lastX = pt.x;
+        placed = true;
+        Native.SelectObject(mem, old);
+        Native.DeleteDC(mem);
+        Native.ReleaseDC(IntPtr.Zero, screen);
     }
 
     void Place()
@@ -699,7 +922,9 @@ class App : ApplicationContext
         Native.RECT tb; Native.GetWindowRect(tray, out tb);
         // el explorador se reinicio o la barra cambio de tamano: redibujar
         if (tray != attached || width == 0 || tb.bottom - tb.top != height) { Render(current); return; }
-        var pt = Position(tray);
+        if (!placed) { Commit(); return; }
+        Native.POINT pt;
+        if (!Position(tray, out pt)) { Commit(); return; }
         // solo tocar la ventana si algo cambio (mover) o si algo se puso por encima (z-order)
         if (pt.x != lastX) { Native.MoveLayered(form.Handle, IntPtr.Zero, ref pt, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, 0, IntPtr.Zero, 0); lastX = pt.x; }
         if (Native.GetWindow(form.Handle, 3) != IntPtr.Zero) // GW_HWNDPREV: hay algo encima
